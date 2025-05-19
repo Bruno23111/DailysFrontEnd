@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Frontend FastAPI + Firebase Auth</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+</head>
+<body class="bg-light d-flex justify-content-center align-items-center vh-100">
+  <div class="container" style="max-width: 400px;">
+    <h1 class="mb-4 text-center">Frontend API + Firebase Auth</h1>
+
+    <!-- Tela Login -->
+    <div id="login-screen">
+      <h3>Login</h3>
+      <form id="login-form" class="mb-3">
+        <input type="email" id="login-email" placeholder="Email" class="form-control mb-2" required />
+        <input type="password" id="login-password" placeholder="Senha" class="form-control mb-2" required />
+        <button type="submit" class="btn btn-primary">Entrar</button>
+      </form>
+      <p>Não tem conta? <a href="#" id="show-register">Cadastre-se aqui</a></p>
+      <div id="login-error" class="text-danger"></div>
+    </div>
+
+    <!-- Tela Cadastro -->
+    <div id="register-screen" style="display:none;">
+      <h3>Cadastro</h3>
+      <form id="register-form" class="mb-3">
+        <input type="email" id="register-email" placeholder="Email" class="form-control mb-2" required />
+        <input type="password" id="register-password" placeholder="Senha" class="form-control mb-2" required />
+        <button type="submit" class="btn btn-success">Cadastrar</button>
+      </form>
+      <p>Já tem conta? <a href="#" id="show-login">Faça login aqui</a></p>
+      <div id="register-error" class="text-danger"></div>
+      <div id="register-success" class="text-success"></div>
+    </div>
+
+    <!-- Tela Tarefas -->
+    <div id="tasks-screen" style="display:none;">
+      <button id="logout-btn" class="btn btn-warning mb-3">Sair</button>
+
+      <h3>Suas Tasks</h3>
+      <ul id="tasks-list" class="list-group mb-3"></ul>
+
+      <form id="add-task-form" class="mb-3">
+        <input type="text" id="task-title" placeholder="Título" class="form-control mb-2" required />
+        <textarea id="task-description" placeholder="Descrição" class="form-control mb-2" rows="2"></textarea>
+        <div class="form-check mb-2">
+          <input type="checkbox" id="task-completed" class="form-check-input" />
+          <label for="task-completed" class="form-check-label">Concluído</label>
+        </div>
+        <button type="submit" class="btn btn-primary">Adicionar Task</button>
+      </form>
+
+      <div id="tasks-error" class="text-danger"></div>
+    </div>
+  </div>
+
+<script>
+  // Config Firebase — substitua com sua config do projeto Firebase (web app)
+  const firebaseConfig = {
+    apiKey: "AIzaSyDpl7mhN6cvvUIMVx_GRGbNheC0iPTKRBU",
+    authDomain: "tpi-firebase-8ed07.firebaseapp.com",
+    projectId: "tpi-firebase-8ed07",
+    storageBucket: "tpi-firebase-8ed07.firebasestorage.app",
+    messagingSenderId: "344430786276",
+    appId: "1:344430786276:web:c2342c3bc9e712f3995ef1",
+    measurementId: "G-54X23HDWF7"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+
+  // URLs da API - ajuste conforme seu domínio/endpoint correto
+  const API_BASE = "https://minha-api-fastapi-874227477799.us-central1.run.app/api";
+
+  // Elementos
+  const loginScreen = document.getElementById("login-screen");
+  const registerScreen = document.getElementById("register-screen");
+  const tasksScreen = document.getElementById("tasks-screen");
+
+  const loginForm = document.getElementById("login-form");
+  const loginError = document.getElementById("login-error");
+
+  const registerForm = document.getElementById("register-form");
+  const registerError = document.getElementById("register-error");
+  const registerSuccess = document.getElementById("register-success");
+
+  const showRegisterLink = document.getElementById("show-register");
+  const showLoginLink = document.getElementById("show-login");
+
+  const logoutBtn = document.getElementById("logout-btn");
+
+  const tasksList = document.getElementById("tasks-list");
+  const addTaskForm = document.getElementById("add-task-form");
+  const taskTitleInput = document.getElementById("task-title");
+  const taskDescriptionInput = document.getElementById("task-description");
+  const taskCompletedInput = document.getElementById("task-completed");
+  const tasksError = document.getElementById("tasks-error");
+
+  // Alterna telas
+  showRegisterLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    loginScreen.style.display = "none";
+    registerScreen.style.display = "block";
+    tasksScreen.style.display = "none";
+    clearMessages();
+  });
+
+  showLoginLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    loginScreen.style.display = "block";
+    registerScreen.style.display = "none";
+    tasksScreen.style.display = "none";
+    clearMessages();
+  });
+
+  // Limpa mensagens
+  function clearMessages() {
+    loginError.textContent = "";
+    registerError.textContent = "";
+    registerSuccess.textContent = "";
+    tasksError.textContent = "";
+  }
+
+  // LOGIN
+  loginForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearMessages();
+    const email = document.getElementById("login-email").value;
+    const password = document.getElementById("login-password").value;
+
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+    } catch (error) {
+      loginError.textContent = error.message;
+    }
+  });
+
+  // CADASTRO - Cria usuário no Firebase Auth e depois na API FastAPI
+  registerForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearMessages();
+
+    const email = document.getElementById("register-email").value;
+    const password = document.getElementById("register-password").value;
+
+    try {
+      // 1. Cria no Firebase Auth
+      const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+      const user = userCredential.user;
+      const token = await user.getIdToken();
+
+      // 2. Cria no backend (FastAPI) — sua API espera o token para autorização
+      const res = await fetch(`${API_BASE}/users`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token,
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || "Erro ao criar usuário na API");
+      }
+
+      registerSuccess.textContent = "Usuário criado com sucesso!";
+      registerForm.reset();
+
+    } catch (error) {
+      registerError.textContent = error.message;
+    }
+  });
+
+  // AUTENTICAÇÃO: controla o que mostrar baseado no usuário logado
+  auth.onAuthStateChanged(async (user) => {
+    clearMessages();
+    if (user) {
+      loginScreen.style.display = "none";
+      registerScreen.style.display = "none";
+      tasksScreen.style.display = "block";
+
+      await loadTasks();
+
+    } else {
+      loginScreen.style.display = "block";
+      registerScreen.style.display = "none";
+      tasksScreen.style.display = "none";
+    }
+  });
+
+  // LOGOUT
+  logoutBtn.addEventListener("click", () => {
+    auth.signOut();
+  });
+
+  // Carrega tasks do backend
+  async function loadTasks() {
+    tasksList.innerHTML = "";
+    tasksError.textContent = "";
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch(`${API_BASE}/tasks`, {
+        headers: { "Authorization": "Bearer " + token },
+      });
+
+      if (!res.ok) throw new Error("Erro ao carregar tasks");
+
+      const tasks = await res.json();
+      if (tasks.length === 0) {
+        tasksList.innerHTML = "<li class='list-group-item'>Nenhuma task cadastrada.</li>";
+        return;
+      }
+
+      for (const task of tasks) {
+        const li = document.createElement("li");
+        li.className = "list-group-item d-flex justify-content-between align-items-start";
+
+        // Conteúdo da task
+        const taskContent = document.createElement("div");
+        taskContent.innerHTML = `<strong>${escapeHtml(task.title)}</strong><br/>${escapeHtml(task.description || '')}<br/>
+          <small>Status: ${task.completed ? "Concluído" : "Pendente"}</small>`;
+
+        // Botão de excluir
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn btn-sm btn-danger";
+        deleteBtn.textContent = "Excluir";
+        deleteBtn.addEventListener("click", () => deleteTask(task.task_id));
+
+        li.appendChild(taskContent);
+        li.appendChild(deleteBtn);
+        tasksList.appendChild(li);
+      }
+    } catch (error) {
+      tasksError.textContent = error.message;
+    }
+  }
+
+  // Função para deletar task
+  async function deleteTask(taskId) {
+    if (!confirm("Tem certeza que deseja excluir esta task?")) return;
+
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+        method: "DELETE",
+        headers: { "Authorization": "Bearer " + token },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Erro ao deletar task.");
+      }
+
+      await loadTasks();
+
+    } catch (error) {
+      tasksError.textContent = error.message;
+    }
+  }
+
+  // Adiciona nova task
+  addTaskForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    tasksError.textContent = "";
+
+    const title = taskTitleInput.value.trim();
+    const description = taskDescriptionInput.value.trim();
+    const completed = taskCompletedInput.checked;
+
+    if (!title) {
+      tasksError.textContent = "Título é obrigatório.";
+      return;
+    }
+
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch(`${API_BASE}/tasks`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token,
+        },
+        body: JSON.stringify({ title, description, completed }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Erro ao criar task.");
+      }
+
+      addTaskForm.reset();
+      await loadTasks();
+
+    } catch (error) {
+      tasksError.textContent = error.message;
+    }
+  });
+
+  // Função para evitar injeção de HTML nas tarefas exibidas
+  function escapeHtml(text) {
+    if (!text) return "";
+    return text.replace(/[&<>"']/g, function (m) {
+      return ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      })[m];
+    });
+  }
+</script>
+</body>
+</html>
